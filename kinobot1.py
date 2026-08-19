@@ -1,11 +1,15 @@
+import psycopg2
 import asyncio
 import logging
 import sqlite3
+import os
+import psycopg2
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 # ————————————————————————————————————————————————————————————————
 # BOSHLANG'ICH SOZLAMALAR
@@ -19,7 +23,6 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
-DATABASE_URL = "postgresql://postgres:oybekhan200@db.bdwpqxhxcdalvrprjixg.supabase.co:5432/postgres"
 # ————————————————————————————————————————————————————————————————
 # DATA BAZA (SQLite)
 # ————————————————————————————————————————————————————————————————
