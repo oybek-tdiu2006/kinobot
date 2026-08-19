@@ -1,14 +1,13 @@
-import psycopg2
-import asyncio
-import logging
-import sqlite3
 import os
+import logging
+import asyncio
 import psycopg2
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
+
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 # ————————————————————————————————————————————————————————————————
@@ -23,8 +22,9 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
+
 # ————————————————————————————————————————————————————————————————
-# DATA BAZA (SQLite)
+# DATA BAZA (PostgreSQL / Supabase)
 # ————————————————————————————————————————————————————————————————
 conn = psycopg2.connect(DATABASE_URL)
 cursor = conn.cursor()
@@ -51,7 +51,6 @@ admin_buttons = ReplyKeyboardMarkup(resize_keyboard=True)
 admin_buttons.add("🔍 Kino izlash", "👨‍💻 Admin bilan aloqa")
 admin_buttons.add("➕ Kino qo'shish", "🗑 Kino o'chirish")
 admin_buttons.add("📊 Statistika", "📢 Xabar tarqatish")
-admin_buttons.add("💾 Baza zaxirasi")
 
 cancel_button = ReplyKeyboardMarkup(resize_keyboard=True).add("❌ Bekor qilish")
 
@@ -81,10 +80,10 @@ async def send_welcome(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     
     try:
-        cursor.execute("INSERT INTO users (user_id) VALUES (?)", (user_id,))
+        cursor.execute("INSERT INTO users (user_id) VALUES (%s) ON CONFLICT DO NOTHING", (user_id,))
         conn.commit()
-    except sqlite3.IntegrityError:
-        pass
+    except Exception:
+        conn.rollback()
 
     if user_id != ADMIN_ID and not await check_sub(user_id):
         markup = InlineKeyboardMarkup()
@@ -138,17 +137,6 @@ async def show_stats(message: types.Message):
 # ADMIN FUNKSIYALARI
 # ————————————————————————————————————————————————————————————————
 
-# Baza zaxirasini yuklab olish (Backup)
-@dp.message_handler(text="💾 Baza zaxirasi", state="*")
-async def send_backup(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    try:
-        with open('kino_baza.db', 'rb') as doc:
-            await message.reply_document(doc, caption="📦 <b>Kino bazasining zaxira fayli (Backup)</b>", parse_mode="HTML")
-    except Exception as e:
-        await message.reply(f"❌ Faylni yuborishda xatolik: {e}")
-
 # 1. Kino qo'shish
 @dp.message_handler(text="➕ Kino qo'shish", state="*")
 async def add_kino_start(message: types.Message):
@@ -169,7 +157,10 @@ async def add_kino_save(message: types.Message, state: FSMContext):
     parts = matn.split("*")
     if len(parts) == 3:
         kod, nomi, file_id = parts[0].strip(), parts[1].strip(), parts[2].strip()
-        cursor.execute("INSERT OR REPLACE INTO kinolar (kod, nomi, file_id) VALUES (?, ?, ?)", (kod, nomi, file_id))
+        cursor.execute(
+            "INSERT INTO kinolar (kod, nomi, file_id) VALUES (%s, %s, %s) ON CONFLICT (kod) DO UPDATE SET nomi = EXCLUDED.nomi, file_id = EXCLUDED.file_id",
+            (kod, nomi, file_id)
+        )
         conn.commit()
         await state.finish()
         await message.reply(f"✅ Kino muvaffaqiyatli saqlandi!\n🔑 Kodi: {kod}\n🎬 Nomi: {nomi}", reply_markup=admin_buttons)
@@ -187,10 +178,10 @@ async def delete_kino_start(message: types.Message):
 @dp.message_handler(state=AdminXolatlari.kino_ochirish)
 async def delete_kino_save(message: types.Message, state: FSMContext):
     kod = message.text.strip()
-    cursor.execute("SELECT nomi FROM kinolar WHERE kod = ?", (kod,))
+    cursor.execute("SELECT nomi FROM kinolar WHERE kod = %s", (kod,))
     kino = cursor.fetchone()
     if kino:
-        cursor.execute("DELETE FROM kinolar WHERE kod = ?", (kod,))
+        cursor.execute("DELETE FROM kinolar WHERE kod = %s", (kod,))
         conn.commit()
         await state.finish()
         await message.reply(f"🗑 <b>{kino[0]}</b> (Kod: {kod}) bazadan muvaffaqiyatli o'chirildi!", reply_markup=admin_buttons, parse_mode="HTML")
@@ -246,11 +237,10 @@ async def handle_messages(message: types.Message):
     user_id = message.from_user.id
     matn = message.text.strip()
 
-    # Menyu tugmalariga tegmaslik
     boshqa_tugmalar = [
         "🔍 Kino izlash", "👨‍💻 Admin bilan aloqa", "➕ Kino qo'shish", 
         "🗑 Kino o'chirish", "📊 Statistika", "📢 Xabar tarqatish", 
-        "❌ Bekor qilish", "💾 Baza zaxirasi"
+        "❌ Bekor qilish"
     ]
     if matn in boshqa_tugmalar:
         return
@@ -259,7 +249,7 @@ async def handle_messages(message: types.Message):
         await send_welcome(message, None)
         return
 
-    cursor.execute("SELECT nomi, file_id FROM kinolar WHERE kod = ?", (matn,))
+    cursor.execute("SELECT nomi, file_id FROM kinolar WHERE kod = %s", (matn,))
     kino = cursor.fetchone()
 
     if kino:
@@ -270,7 +260,6 @@ async def handle_messages(message: types.Message):
         except Exception: 
             await message.reply("❌ Videoni yuborishda xatolik yuz berdi!")
     else:
-        # Kod topilmaganda aniq javob berish
         await message.reply("❌ <b>Bunday kodli kino topilmadi!</b>\n\nIltimos, kodni tekshirib qaytadan yuboring.", parse_mode="HTML")
 
 if __name__ == '__main__':
