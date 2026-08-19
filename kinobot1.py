@@ -1,16 +1,17 @@
+import asyncio
 import logging
 import sqlite3
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
-from aiogram.types import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 
 # ————————————————————————————————————————————————————————————————
-# BOSHLANG'ICH SOZLAMALAR (RASMDAGI MA'LUMOTLARINGIZ)
+# BOSHLANG'ICH SOZLAMALAR
 # ————————————————————————————————————————————————————————————————
 API_TOKEN = '8923311651:AAGELYry39UjMM49s_B1x6cIGNVqcldc7ks'
-ADMIN_ID = 8084947526  # O'zingizning haqiqiy Telegram ID raqamingiz
+ADMIN_ID = 8084947526  # Telegram ID
 KANAL_ID = '@manoli_kinolar2026'  # Majburiy obuna kanali username
 KANAL_LINK = 'https://t.me/Manoli_kinolar2026'  # Kanal havolasi
 
@@ -18,11 +19,11 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
-
+DATABASE_URL = "postgresql://postgres:[oybekhan200]@db.bdwpqxhxcdalvrprjixg.supabase.co:5432/postgres"
 # ————————————————————————————————————————————————————————————————
-# DATA BAZA (SQLite - Kinolar va Foydalanuvchilar uchun)
+# DATA BAZA (SQLite)
 # ————————————————————————————————————————————————————————————————
-conn = sqlite3.connect('kino_baza.db')
+conn = sqlite3.connect('kino_baza.db', check_same_thread=False)
 cursor = conn.cursor()
 
 cursor.execute('''CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY)''')
@@ -30,12 +31,12 @@ cursor.execute('''CREATE TABLE IF NOT EXISTS kinolar (kod TEXT PRIMARY KEY, nomi
 conn.commit()
 
 # ————————————————————————————————————————————————————————————————
-# FSM HOLATLARI (STATES - KINO QOSHISH VA OCHIRISH UCHUN)
+# FSM HOLATLARI
 # ————————————————————————————————————————————————————————————————
 class AdminXolatlari(StatesGroup):
     kino_qoshish = State()       
     kino_ochirish = State() 
-    reklama=State()    
+    reklama = State()    
 
 # ————————————————————————————————————————————————————————————————
 # TUGMALAR (KEYBOARDS)
@@ -46,8 +47,8 @@ menu_buttons.add("🔍 Kino izlash", "👨‍💻 Admin bilan aloqa")
 admin_buttons = ReplyKeyboardMarkup(resize_keyboard=True)
 admin_buttons.add("🔍 Kino izlash", "👨‍💻 Admin bilan aloqa")
 admin_buttons.add("➕ Kino qo'shish", "🗑 Kino o'chirish")
-admin_buttons.add("📊 Statistika")
-admin_buttons.add("📢 Xabar tarqatish")
+admin_buttons.add("📊 Statistika", "📢 Xabar tarqatish")
+admin_buttons.add("💾 Baza zaxirasi")
 
 cancel_button = ReplyKeyboardMarkup(resize_keyboard=True).add("❌ Bekor qilish")
 
@@ -68,7 +69,8 @@ async def check_sub(user_id: int) -> bool:
 @dp.message_handler(text="❌ Bekor qilish", state="*")
 async def cancel_handler(message: types.Message, state: FSMContext):
     await state.finish()
-    await message.reply("🔄 Amaliyot bekor qilindi.", reply_markup=admin_buttons)
+    reply_m = admin_buttons if message.from_user.id == ADMIN_ID else menu_buttons
+    await message.reply("🔄 Amaliyot bekor qilindi.", reply_markup=reply_m)
 
 @dp.message_handler(commands=['start'], state="*")
 async def send_welcome(message: types.Message, state: FSMContext):
@@ -81,7 +83,7 @@ async def send_welcome(message: types.Message, state: FSMContext):
     except sqlite3.IntegrityError:
         pass
 
-    if not await check_sub(user_id) and user_id != ADMIN_ID:
+    if user_id != ADMIN_ID and not await check_sub(user_id):
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton(text="📢 Kanalga obuna bo'lish", url=KANAL_LINK))
         markup.add(InlineKeyboardButton(text="✅ Tekshirish", callback_data="check_subscription"))
@@ -114,8 +116,8 @@ async def admin_contact(message: types.Message):
 
 @dp.message_handler(text="🔍 Kino izlash", state="*")
 async def search_info(message: types.Message):
-    if not await check_sub(message.from_user.id) and message.from_user.id != ADMIN_ID:
-        await send_welcome(message)
+    if message.from_user.id != ADMIN_ID and not await check_sub(message.from_user.id):
+        await send_welcome(message, None)
         return
     await message.reply("🍿 Kino kodini yuboring. Masalan: 101")
 
@@ -130,32 +132,52 @@ async def show_stats(message: types.Message):
     await message.reply(f"📊 <b>Bot statistikasi:</b>\n\n👥 Foydalanuvchilar: {u_count} ta\n🎬 Kinolar: {k_count} ta", parse_mode="HTML")
 
 # ————————————————————————————————————————————————————————————————
-# ADMIN FUNKSIYALARI (OSON VA SAMARALI)
+# ADMIN FUNKSIYALARI
 # ————————————————————————————————————————————————————————————————
 
-# 1. Kino qo'shish jarayoni
+# Baza zaxirasini yuklab olish (Backup)
+@dp.message_handler(text="💾 Baza zaxirasi", state="*")
+async def send_backup(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    try:
+        with open('kino_baza.db', 'rb') as doc:
+            await message.reply_document(doc, caption="📦 <b>Kino bazasining zaxira fayli (Backup)</b>", parse_mode="HTML")
+    except Exception as e:
+        await message.reply(f"❌ Faylni yuborishda xatolik: {e}")
+
+# 1. Kino qo'shish
 @dp.message_handler(text="➕ Kino qo'shish", state="*")
 async def add_kino_start(message: types.Message):
-    if message.from_user.id != ADMIN_ID: return
+    if message.from_user.id != ADMIN_ID:
+        return
     await AdminXolatlari.kino_qoshish.set()
-    await message.reply("Kino qo'shish uchun ma'lumotlarni yuboring.\n\nFormat: <code>kod*nomi*file_id</code>\nMasalan: <code>101*Forsaj 10*BAACAgIAAx...</code>", reply_markup=cancel_button, parse_mode="HTML")
+    await message.reply(
+        "Kino qo'shish uchun ma'lumotlarni quyidagi formatda yuboring:\n\n"
+        "<code>kod*nomi*file_id</code>\n\n"
+        "Masalan: <code>101*Forsaj 10*BAACAgIAAx...</code>",
+        reply_markup=cancel_button,
+        parse_mode="HTML"
+    )
 
 @dp.message_handler(state=AdminXolatlari.kino_qoshish)
 async def add_kino_save(message: types.Message, state: FSMContext):
     matn = message.text.strip()
-    if "*" in matn and len(matn.split("*")) == 3:
-        kod, nomi, file_id = matn.split("*")
-        cursor.execute("INSERT OR REPLACE INTO kinolar (kod, nomi, file_id) VALUES (?, ?, ?)", (kod.strip(), nomi.strip(), file_id.strip()))
+    parts = matn.split("*")
+    if len(parts) == 3:
+        kod, nomi, file_id = parts[0].strip(), parts[1].strip(), parts[2].strip()
+        cursor.execute("INSERT OR REPLACE INTO kinolar (kod, nomi, file_id) VALUES (?, ?, ?)", (kod, nomi, file_id))
         conn.commit()
         await state.finish()
         await message.reply(f"✅ Kino muvaffaqiyatli saqlandi!\n🔑 Kodi: {kod}\n🎬 Nomi: {nomi}", reply_markup=admin_buttons)
     else:
-        await message.reply("❌ Format xato! Iltimos qaytadan to'g'ri yozing yoki bekor qiling.")
+        await message.reply("❌ Format xato! Iltimos <code>kod*nomi*file_id</code> ko'rinishida yuboring.", parse_mode="HTML")
 
-# 2. Kino o'chirish jarayoni (Faqat kod yoziladi)
+# 2. Kino o'chirish
 @dp.message_handler(text="🗑 Kino o'chirish", state="*")
 async def delete_kino_start(message: types.Message):
-    if message.from_user.id != ADMIN_ID: return
+    if message.from_user.id != ADMIN_ID:
+        return
     await AdminXolatlari.kino_ochirish.set()
     await message.reply("🗑 O'chirmoqchi bo'lgan kinongizning <b>kodini (raqamini)</b> yuboring:", reply_markup=cancel_button, parse_mode="HTML")
 
@@ -171,12 +193,12 @@ async def delete_kino_save(message: types.Message, state: FSMContext):
         await message.reply(f"🗑 <b>{kino[0]}</b> (Kod: {kod}) bazadan muvaffaqiyatli o'chirildi!", reply_markup=admin_buttons, parse_mode="HTML")
     else:
         await message.reply("❌ Bu kod bilan kino topilmadi. Qayta urinib ko'ring:")
-# ————————————————————————————————————————————————————————————————
-# 3. XABAR TARQATISH (REKLAMA PANEL)
-# ————————————————————————————————————————————————————————————————
+
+# 3. Reklama tarqatish
 @dp.message_handler(text="📢 Xabar tarqatish", state="*")
 async def start_reklama(message: types.Message):
-    if message.from_user.id != ADMIN_ID: return
+    if message.from_user.id != ADMIN_ID:
+        return
     await AdminXolatlari.reklama.set()
     await message.reply("📢 Barcha foydalanuvchilarga yuboriladigan xabarni kiriting (matn, rasm yoki video):", reply_markup=cancel_button)
 
@@ -184,7 +206,6 @@ async def start_reklama(message: types.Message):
 async def send_reklama(message: types.Message, state: FSMContext):
     await state.finish()
     
-    # Bazadan barcha foydalanuvchilarni olish
     cursor.execute("SELECT user_id FROM users")
     barcha_foydalanuvchilar = cursor.fetchall()
     
@@ -195,33 +216,44 @@ async def send_reklama(message: types.Message, state: FSMContext):
     
     for user in barcha_foydalanuvchilar:
         try:
-            # Foydalanuvchiga yuborilgan xabarni aynan o'zidek nusxalab yuboradi (Forward emas)
             await message.copy_to(chat_id=user[0])
             yuborildi += 1
+            await asyncio.sleep(0.05)
         except Exception:
             xato += 1
             
     await kutish_xabari.delete()
-    await message.reply(f"📢 **Xabar tarqatish yakunlandi!**\n\n✅ Muvaffaqiyatli: {yuborildi} ta\n❌ Yetkazilmadi (botni bloklaganlar): {xato} ta", reply_markup=admin_buttons, parse_mode="Markdown")
+    await message.reply(
+        f"📢 <b>Xabar tarqatish yakunlandi!</b>\n\n"
+        f"✅ Muvaffaqiyatli: {yuborildi} ta\n"
+        f"❌ Yetkazilmadi: {xato} ta",
+        reply_markup=admin_buttons,
+        parse_mode="HTML"
+    )
 
-# ————————————————————————————————————————————————————————————————
-# UZATILGAN (FORWARDED) VIDEO VA KINO QIDIRUVNI QABUL QILISH
-# ————————————————————————————————————————————————————————————————
-
-# Admin har qanday videoni (uzatilgan bo'lsa ham) yuborganda file_id qaytarish
+# Admin video yuborganda file_id berish
 @dp.message_handler(content_types=['video'], state="*")
 async def get_video_id(message: types.Message):
     if message.from_user.id == ADMIN_ID:
         await message.reply(f"🎬 Videongizning <code>file_id</code> kodi:\n\n<code>{message.video.file_id}</code>", parse_mode="HTML")
 
-# Foydalanuvchilar kino kodini yozganda qidirish qismi
+# Matnli xabarlarni qabul qilish (Kino qidiruv)
 @dp.message_handler(state="*")
 async def handle_messages(message: types.Message):
     user_id = message.from_user.id
     matn = message.text.strip()
 
-    if not await check_sub(user_id) and user_id != ADMIN_ID:
-        await send_welcome(message)
+    # Menyu tugmalariga tegmaslik
+    boshqa_tugmalar = [
+        "🔍 Kino izlash", "👨‍💻 Admin bilan aloqa", "➕ Kino qo'shish", 
+        "🗑 Kino o'chirish", "📊 Statistika", "📢 Xabar tarqatish", 
+        "❌ Bekor qilish", "💾 Baza zaxirasi"
+    ]
+    if matn in boshqa_tugmalar:
+        return
+
+    if user_id != ADMIN_ID and not await check_sub(user_id):
+        await send_welcome(message, None)
         return
 
     cursor.execute("SELECT nomi, file_id FROM kinolar WHERE kod = ?", (matn,))
@@ -233,12 +265,10 @@ async def handle_messages(message: types.Message):
         try: 
             await bot.send_video(chat_id=message.chat.id, video=file_id)
         except Exception: 
-            await message.reply("❌ Videoni yuborishda xatolik!")
-
-
+            await message.reply("❌ Videoni yuborishda xatolik yuz berdi!")
     else:
-        if user_id != ADMIN_ID:
-            await message.reply("❌ Bu kod bilan kino topilmadi. Qayta tekshirib ko'ring.")
+        # Kod topilmaganda aniq javob berish
+        await message.reply("❌ <b>Bunday kodli kino topilmadi!</b>\n\nIltimos, kodni tekshirib qaytadan yuboring.", parse_mode="HTML")
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
