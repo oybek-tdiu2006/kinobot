@@ -23,10 +23,10 @@ DATABASE_URL = "postgresql://postgres:oybekhan200@db.bdwpqxhxcdalvrprjixg.supaba
 # ————————————————————————————————————————————————————————————————
 # DATA BAZA (SQLite)
 # ————————————————————————————————————————————————————————————————
-conn = sqlite3.connect('kino_baza.db', check_same_thread=False)
+conn = psycopg2.connect(DATABASE_URL)
 cursor = conn.cursor()
 
-cursor.execute('''CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY)''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS users (user_id BIGINT PRIMARY KEY)''')
 cursor.execute('''CREATE TABLE IF NOT EXISTS kinolar (kod TEXT PRIMARY KEY, nomi TEXT, file_id TEXT)''')
 conn.commit()
 
