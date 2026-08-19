@@ -19,7 +19,7 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
-DATABASE_URL = "postgresql://postgres:[oybekhan200]@db.bdwpqxhxcdalvrprjixg.supabase.co:5432/postgres"
+DATABASE_URL = "postgresql://postgres:oybekhan200@db.bdwpqxhxcdalvrprjixg.supabase.co:5432/postgres"
 # ————————————————————————————————————————————————————————————————
 # DATA BAZA (SQLite)
 # ————————————————————————————————————————————————————————————————
