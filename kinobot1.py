@@ -135,14 +135,14 @@ async def send_welcome(message: types.Message, state: FSMContext):
     )
     markup.add(
         InlineKeyboardButton(
-            text='✅ Tekshirish', callback_data='check_subscription'
+            text="✅ Tekshirish", callback_data='check_subscription'
         )
     )
-    await message.reply(
-        '👋 Assalomu alaykum!\nBotdan foydalanish uchun quyidagi kanalimizga'
-        ' obuna bo'ling:',
-        reply_markup=markup,
-    )
+      await message.reply(
+          "👋 Assalomu alaykum!\nBotdan foydalanish uchun quyidagi kanalimizga obuna bo'ling:",
+          reply_markup=markup,
+          )
+
     return
 
   if user_id == ADMIN_ID:
