@@ -10,8 +10,8 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeybo
 # ————————————————————————————————————————————————————————————————
 # BOSHLANG'ICH SOZLAMALAR
 # ————————————————————————————————————————————————————————————————
-API_TOKEN = '8923311651:AAGELYry39UjMM49s_B1x6cIGNVqcldc7ks'
-ADMIN_ID = 8084947526  # Telegram ID
+API_TOKEN = '8923311651:AAGELYry39UjMM49s_B1x6cIGNVqcldc7ks'  # Kerak bo'lsa yangi token qo'yasiz
+ADMIN_ID = 8084947526  # Telegram Admin ID
 KANAL_ID = '@manoli_kinolar2026'  # Majburiy obuna kanali username
 KANAL_LINK = 'https://t.me/Manoli_kinolar2026'  # Kanal havolasi
 
@@ -19,9 +19,9 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
-DATABASE_URL = "postgresql://postgres:oybekhan200@db.bdwpqxhxcdalvrprjixg.supabase.co:5432/postgres"
+
 # ————————————————————————————————————————————————————————————————
-# DATA BAZA (SQLite)
+# DATA BAZA (SQLite) - Kinolar va foydalanuvchilar o'chib ketmaydi
 # ————————————————————————————————————————————————————————————————
 conn = sqlite3.connect('kino_baza.db', check_same_thread=False)
 cursor = conn.cursor()
@@ -78,9 +78,9 @@ async def send_welcome(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     
     try:
-        cursor.execute("INSERT INTO users (user_id) VALUES (?)", (user_id,))
+        cursor.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (user_id,))
         conn.commit()
-    except sqlite3.IntegrityError:
+    except Exception:
         pass
 
     if user_id != ADMIN_ID and not await check_sub(user_id):
@@ -135,7 +135,6 @@ async def show_stats(message: types.Message):
 # ADMIN FUNKSIYALARI
 # ————————————————————————————————————————————————————————————————
 
-# Baza zaxirasini yuklab olish (Backup)
 @dp.message_handler(text="💾 Baza zaxirasi", state="*")
 async def send_backup(message: types.Message):
     if message.from_user.id != ADMIN_ID:
@@ -146,7 +145,6 @@ async def send_backup(message: types.Message):
     except Exception as e:
         await message.reply(f"❌ Faylni yuborishda xatolik: {e}")
 
-# 1. Kino qo'shish
 @dp.message_handler(text="➕ Kino qo'shish", state="*")
 async def add_kino_start(message: types.Message):
     if message.from_user.id != ADMIN_ID:
@@ -173,7 +171,6 @@ async def add_kino_save(message: types.Message, state: FSMContext):
     else:
         await message.reply("❌ Format xato! Iltimos <code>kod*nomi*file_id</code> ko'rinishida yuboring.", parse_mode="HTML")
 
-# 2. Kino o'chirish
 @dp.message_handler(text="🗑 Kino o'chirish", state="*")
 async def delete_kino_start(message: types.Message):
     if message.from_user.id != ADMIN_ID:
@@ -194,7 +191,6 @@ async def delete_kino_save(message: types.Message, state: FSMContext):
     else:
         await message.reply("❌ Bu kod bilan kino topilmadi. Qayta urinib ko'ring:")
 
-# 3. Reklama tarqatish
 @dp.message_handler(text="📢 Xabar tarqatish", state="*")
 async def start_reklama(message: types.Message):
     if message.from_user.id != ADMIN_ID:
@@ -231,19 +227,16 @@ async def send_reklama(message: types.Message, state: FSMContext):
         parse_mode="HTML"
     )
 
-# Admin video yuborganda file_id berish
 @dp.message_handler(content_types=['video'], state="*")
 async def get_video_id(message: types.Message):
     if message.from_user.id == ADMIN_ID:
         await message.reply(f"🎬 Videongizning <code>file_id</code> kodi:\n\n<code>{message.video.file_id}</code>", parse_mode="HTML")
 
-# Matnli xabarlarni qabul qilish (Kino qidiruv)
 @dp.message_handler(state="*")
 async def handle_messages(message: types.Message):
     user_id = message.from_user.id
     matn = message.text.strip()
 
-    # Menyu tugmalariga tegmaslik
     boshqa_tugmalar = [
         "🔍 Kino izlash", "👨‍💻 Admin bilan aloqa", "➕ Kino qo'shish", 
         "🗑 Kino o'chirish", "📊 Statistika", "📢 Xabar tarqatish", 
@@ -256,7 +249,7 @@ async def handle_messages(message: types.Message):
         await send_welcome(message, None)
         return
 
-    # Xavfsiz qayta ulanish va qidirish uchun yangi cursor ochamiz
+    # Har safar alohida cursor ochib qidirish (keshda qolib ketishini oldini oladi)
     local_cursor = conn.cursor()
     local_cursor.execute("SELECT nomi, file_id FROM kinolar WHERE kod = ?", (matn,))
     kino = local_cursor.fetchone()
@@ -269,7 +262,7 @@ async def handle_messages(message: types.Message):
         except Exception: 
             await message.reply("❌ Videoni yuborishda xatolik yuz berdi!")
     else:
-        # Kod topilmaganda aniq javob berish
         await message.reply("❌ <b>Bunday kodli kino topilmadi!</b>\n\nIltimos, kodni tekshirib qaytadan yuboring.", parse_mode="HTML")
+
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
