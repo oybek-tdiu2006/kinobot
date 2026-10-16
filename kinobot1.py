@@ -256,8 +256,10 @@ async def handle_messages(message: types.Message):
         await send_welcome(message, None)
         return
 
-    cursor.execute("SELECT nomi, file_id FROM kinolar WHERE kod = ?", (matn,))
-    kino = cursor.fetchone()
+    # Xavfsiz qayta ulanish va qidirish uchun yangi cursor ochamiz
+    local_cursor = conn.cursor()
+    local_cursor.execute("SELECT nomi, file_id FROM kinolar WHERE kod = ?", (matn,))
+    kino = local_cursor.fetchone()
 
     if kino:
         nomi, file_id = kino
@@ -269,6 +271,5 @@ async def handle_messages(message: types.Message):
     else:
         # Kod topilmaganda aniq javob berish
         await message.reply("❌ <b>Bunday kodli kino topilmadi!</b>\n\nIltimos, kodni tekshirib qaytadan yuboring.", parse_mode="HTML")
-
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
