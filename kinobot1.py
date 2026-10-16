@@ -167,3 +167,164 @@ async def show_stats(message: types.Message):
         db_conn.close()
         await message.reply(f"📊 <b>Bot statistikasi:</b>\n\n👥 Foydalanuvchilar: {u_count} ta\n🎬 Kinolar: {k_count} ta", parse_mode="HTML")
     except Exception as e:
+        await message.reply(f"❌ Statistikani olishda xatolik: {e}")
+
+# ————————————————————————————————————————————————————————————————
+# ADMIN FUNKSIYALARI
+# ————————————————————————————————————————————————————————————————
+
+@dp.message_handler(text="➕ Kino qo'shish", state="*")
+async def add_kino_start(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    await AdminXolatlari.kino_qoshish.set()
+    await message.reply(
+        "Kino qo'shish uchun ma'lumotlarni quyidagi formatda yuboring:\n\n"
+        "<code>kod*nomi*file_id</code>\n\n"
+        "Masalan: <code>101*Forsaj 10*BAACAgIAAx...</code>",
+        reply_markup=cancel_button,
+        parse_mode="HTML"
+    )
+
+@dp.message_handler(state=AdminXolatlari.kino_qoshish)
+async def add_kino_save(message: types.Message, state: FSMContext):
+    matn = message.text.strip()
+    parts = matn.split("*")
+    if len(parts) == 3:
+        kod, nomi, file_id = parts[0].strip(), parts[1].strip(), parts[2].strip()
+        try:
+            db_conn = get_db_connection()
+            db_cursor = db_conn.cursor()
+            db_cursor.execute(
+                "INSERT INTO kinolar (kod, nomi, file_id) VALUES (%s, %s, %s) ON CONFLICT (kod) DO UPDATE SET nomi = EXCLUDED.nomi, file_id = EXCLUDED.file_id",
+                (kod, nomi, file_id)
+            )
+            db_conn.commit()
+            db_cursor.close()
+            db_conn.close()
+            await state.finish()
+            await message.reply(f"✅ Kino muvaffaqiyatli saqlandi!\n🔑 Kodi: {kod}\n🎬 Nomi: {nomi}", reply_markup=admin_buttons)
+        except Exception as e:
+            # Aniq xatolikni chiqarish (Agar jadval topilmasa yoki boshqa xato bo'lsa ko'rinadi)
+            await message.reply(f"❌ Bazaga saqlashda xatolik: <code>{str(e)}</code>", parse_mode="HTML")
+    else:
+        await message.reply("❌ Format xato! Iltimos <code>kod*nomi*file_id</code> ko'rinishida yuboring.", parse_mode="HTML")
+
+@dp.message_handler(text="🗑 Kino o'chirish", state="*")
+async def delete_kino_start(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    await AdminXolatlari.kino_ochirish.set()
+    await message.reply("🗑 O'chirmoqchi bo'lgan kinongizning <b>kodini (raqamini)</b> yuboring:", reply_markup=cancel_button, parse_mode="HTML")
+
+@dp.message_handler(state=AdminXolatlari.kino_ochirish)
+async def delete_kino_save(message: types.Message, state: FSMContext):
+    kod = message.text.strip()
+    try:
+        db_conn = get_db_connection()
+        db_cursor = db_conn.cursor()
+        db_cursor.execute("SELECT nomi FROM kinolar WHERE kod = %s", (kod,))
+        kino = db_cursor.fetchone()
+        if kino:
+            db_cursor.execute("DELETE FROM kinolar WHERE kod = %s", (kod,))
+            db_conn.commit()
+            db_cursor.close()
+            db_conn.close()
+            await state.finish()
+            await message.reply(f"🗑 <b>{kino[0]}</b> (Kod: {kod}) bazadan muvaffaqiyatli o'chirildi!", reply_markup=admin_buttons, parse_mode="HTML")
+        else:
+            db_cursor.close()
+            db_conn.close()
+            await message.reply("❌ Bu kod bilan kino topilmadi. Qayta urinib ko'ring:")
+    except Exception as e:
+        await message.reply(f"❌ Xatolik yuz berdi: {e}")
+
+@dp.message_handler(text="📢 Xabar tarqatish", state="*")
+async def start_reklama(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    await AdminXolatlari.reklama.set()
+    await message.reply("📢 Barcha foydalanuvchilarga yuboriladigan xabarni kiriting (matn, rasm yoki video):", reply_markup=cancel_button)
+
+@dp.message_handler(state=AdminXolatlari.reklama, content_types=types.ContentType.ANY)
+async def send_reklama(message: types.Message, state: FSMContext):
+    await state.finish()
+    
+    try:
+        db_conn = get_db_connection()
+        db_cursor = db_conn.cursor()
+        db_cursor.execute("SELECT user_id FROM users")
+        barcha_foydalanuvchilar = db_cursor.fetchall()
+        db_cursor.close()
+        db_conn.close()
+    except Exception as e:
+        await message.reply(f"❌ Foydalanuvchilarni olishda xatolik: {e}")
+        return
+    
+    yuborildi = 0
+    xato = 0
+    
+    kutish_xabari = await message.reply("⏳ Xabar tarqatilmoqda, iltimos kuting...")
+    
+    for user in barcha_foydalanuvchilar:
+        try:
+            await message.copy_to(chat_id=user[0])
+            yuborildi += 1
+            await asyncio.sleep(0.05)
+        except Exception:
+            xato += 1
+            
+    await kutish_xabari.delete()
+    await message.reply(
+        f"📢 <b>Xabar tarqatish yakunlandi!</b>\n\n"
+        f"✅ Muvaffaqiyatli: {yuborildi} ta\n"
+        f"❌ Yetkazilmadi: {xato} ta",
+        reply_markup=admin_buttons,
+        parse_mode="HTML"
+    )
+
+@dp.message_handler(content_types=['video'], state="*")
+async def get_video_id(message: types.Message):
+    if message.from_user.id == ADMIN_ID:
+        await message.reply(f"🎬 Videongizning <code>file_id</code> kodi:\n\n<code>{message.video.file_id}</code>", parse_mode="HTML")
+
+@dp.message_handler(state="*")
+async def handle_messages(message: types.Message):
+    user_id = message.from_user.id
+    matn = message.text.strip()
+
+    boshqa_tugmalar = [
+        "🔍 Kino izlash", "👨‍💻 Admin bilan aloqa", "➕ Kino qo'shish", 
+        "🗑 Kino o'chirish", "📊 Statistika", "📢 Xabar tarqatish", 
+        "❌ Bekor qilish"
+    ]
+    if matn in boshqa_tugmalar:
+        return
+
+    if user_id != ADMIN_ID and not await check_sub(user_id):
+        await send_welcome(message, None)
+        return
+
+    try:
+        db_conn = get_db_connection()
+        db_cursor = db_conn.cursor()
+        db_cursor.execute("SELECT nomi, file_id FROM kinolar WHERE kod = %s", (matn,))
+        kino = db_cursor.fetchone()
+        db_cursor.close()
+        db_conn.close()
+
+        if kino:
+            nomi, file_id = kino
+            await message.reply(f"🎬 <b>Kino nomi:</b> {nomi}\n\n🍿 Yoqimli tomosha!", parse_mode="HTML")
+            try: 
+                await bot.send_video(chat_id=message.chat.id, video=file_id)
+            except Exception: 
+                await message.reply("❌ Videoni yuborishda xatolik yuz berdi!")
+        else:
+            await message.reply("❌ <b>Bunday kodli kino topilmadi!</b>\n\nIltimos, kodni tekshirib qaytadan yuboring.", parse_mode="HTML")
+    except Exception as e:
+        await message.reply(f"❌ Qidirishda xatolik yuz berdi: {e}")
+
+if __name__ == '__main__':
+    keep_alive()  # Render uxlab qolmasligi uchun serverni yoqish
+    executor.start_polling(dp, skip_updates=True)
