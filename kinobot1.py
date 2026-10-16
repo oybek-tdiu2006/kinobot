@@ -6,11 +6,13 @@ from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
+from flask import Flask
+from threading import Thread
 
 # ————————————————————————————————————————————————————————————————
 # BOSHLANG'ICH SOZLAMALAR
 # ————————————————————————————————————————————————————————————————
-API_TOKEN = '8923311651:AAGELYry39UjMM49s_B1x6cIGNVqcldc7ks'  # Kerak bo'lsa yangi token qo'yasiz
+API_TOKEN = '8923311651:AAGELYry39UjMM49s_B1x6cIGNVqcldc7ks'  # Bot tokeni
 ADMIN_ID = 8084947526  # Telegram Admin ID
 KANAL_ID = '@manoli_kinolar2026'  # Majburiy obuna kanali username
 KANAL_LINK = 'https://t.me/Manoli_kinolar2026'  # Kanal havolasi
@@ -29,13 +31,32 @@ def get_db_connection():
     return psycopg2.connect(DATABASE_URL, sslmode='require')
 
 # Jadvalarni yaratish
-conn = get_db_connection()
-cursor = conn.cursor()
-cursor.execute('''CREATE TABLE IF NOT EXISTS users (user_id BIGINT PRIMARY KEY)''')
-cursor.execute('''CREATE TABLE IF NOT EXISTS kinolar (kod TEXT PRIMARY KEY, nomi TEXT, file_id TEXT)''')
-conn.commit()
-cursor.close()
-conn.close()
+try:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''CREATE TABLE IF NOT EXISTS users (user_id BIGINT PRIMARY KEY)''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS kinolar (kod TEXT PRIMARY KEY, nomi TEXT, file_id TEXT)''')
+    conn.commit()
+    cursor.close()
+    conn.close()
+except Exception as e:
+    logging.error(f"Baza yaratishda xatolik: {e}")
+
+# ————————————————————————————————————————————————————————————————
+# RENDER UCHUN KEEP-ALIVE SERVER (Uxlashini oldini oladi)
+# ————————————————————————————————————————————————————————————————
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Bot ishlayapti va faol!"
+
+def run_web():
+    app.run(host='0.0.0.0', port=8080)
+
+def keep_alive():
+    t = Thread(target=run_web)
+    t.start()
 
 # ————————————————————————————————————————————————————————————————
 # FSM HOLATLARI
@@ -228,12 +249,16 @@ async def start_reklama(message: types.Message):
 async def send_reklama(message: types.Message, state: FSMContext):
     await state.finish()
     
-    db_conn = get_db_connection()
-    db_cursor = db_conn.cursor()
-    db_cursor.execute("SELECT user_id FROM users")
-    barcha_foydalanuvchilar = db_cursor.fetchall()
-    db_cursor.close()
-    db_conn.close()
+    try:
+        db_conn = get_db_connection()
+        db_cursor = db_conn.cursor()
+        db_cursor.execute("SELECT user_id FROM users")
+        barcha_foydalanuvchilar = db_cursor.fetchall()
+        db_cursor.close()
+        db_conn.close()
+    except Exception as e:
+        await message.reply(f"❌ Foydalanuvchilarni olishda xatolik: {e}")
+        return
     
     yuborildi = 0
     xato = 0
@@ -300,4 +325,5 @@ async def handle_messages(message: types.Message):
         await message.reply(f"❌ Qidirishda xatolik yuz berdi: {e}")
 
 if __name__ == '__main__':
+    keep_alive()  # Render uxlab qolmasligi uchun serverni yoqish
     executor.start_polling(dp, skip_updates=True)
