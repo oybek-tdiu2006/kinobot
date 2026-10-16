@@ -1,6 +1,6 @@
 import asyncio
 import logging
-import psycopg2
+import sqlite3
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
@@ -23,24 +23,14 @@ storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
 
 # ————————————————————————————————————————————————————————————————
-# SUPABASE (POSTGRESQL) DATA BAZA
+# DATA BAZA (SQLITE)
 # ————————————————————————————————————————————————————————————————
-DATABASE_URL = "postgresql://postgres:oybekhan200@db.bdwpqxhxcdalvrprjixg.supabase.co:5432/postgres"
+conn = sqlite3.connect('kino_baza.db', check_same_thread=False)
+cursor = conn.cursor()
 
-def get_db_connection():
-    return psycopg2.connect(DATABASE_URL, sslmode='require')
-
-# Jadvalarni avtomatik yaratish
-try:
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('''CREATE TABLE IF NOT EXISTS users (user_id BIGINT PRIMARY KEY)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS kinolar (kod TEXT PRIMARY KEY, nomi TEXT, file_id TEXT)''')
-    conn.commit()
-    cursor.close()
-    conn.close()
-except Exception as e:
-    logging.error(f"Baza yaratishda xatolik: {e}")
+cursor.execute('''CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY)''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS kinolar (kod TEXT PRIMARY KEY, nomi TEXT, file_id TEXT)''')
+conn.commit()
 
 # ————————————————————————————————————————————————————————————————
 # RENDER UCHUN KEEP-ALIVE SERVER (Uxlashini oldini oladi)
@@ -76,6 +66,7 @@ admin_buttons = ReplyKeyboardMarkup(resize_keyboard=True)
 admin_buttons.add("🔍 Kino izlash", "👨‍💻 Admin bilan aloqa")
 admin_buttons.add("➕ Kino qo'shish", "🗑 Kino o'chirish")
 admin_buttons.add("📊 Statistika", "📢 Xabar tarqatish")
+admin_buttons.add("💾 Baza zaxirasi")
 
 cancel_button = ReplyKeyboardMarkup(resize_keyboard=True).add("❌ Bekor qilish")
 
@@ -105,14 +96,10 @@ async def send_welcome(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     
     try:
-        db_conn = get_db_connection()
-        db_cursor = db_conn.cursor()
-        db_cursor.execute("INSERT INTO users (user_id) VALUES (%s) ON CONFLICT (user_id) DO NOTHING", (user_id,))
-        db_conn.commit()
-        db_cursor.close()
-        db_conn.close()
-    except Exception as e:
-        logging.error(f"User save error: {e}")
+        cursor.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (user_id,))
+        conn.commit()
+    except Exception:
+        pass
 
     if user_id != ADMIN_ID and not await check_sub(user_id):
         markup = InlineKeyboardMarkup()
@@ -156,22 +143,25 @@ async def search_info(message: types.Message):
 async def show_stats(message: types.Message):
     if message.from_user.id != ADMIN_ID:
         return
-    try:
-        db_conn = get_db_connection()
-        db_cursor = db_conn.cursor()
-        db_cursor.execute("SELECT COUNT(*) FROM users")
-        u_count = db_cursor.fetchone()[0]
-        db_cursor.execute("SELECT COUNT(*) FROM kinolar")
-        k_count = db_cursor.fetchone()[0]
-        db_cursor.close()
-        db_conn.close()
-        await message.reply(f"📊 <b>Bot statistikasi:</b>\n\n👥 Foydalanuvchilar: {u_count} ta\n🎬 Kinolar: {k_count} ta", parse_mode="HTML")
-    except Exception as e:
-        await message.reply(f"❌ Statistikani olishda xatolik: {e}")
+    cursor.execute("SELECT COUNT(*) FROM users")
+    u_count = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM kinolar")
+    k_count = cursor.fetchone()[0]
+    await message.reply(f"📊 <b>Bot statistikasi:</b>\n\n👥 Foydalanuvchilar: {u_count} ta\n🎬 Kinolar: {k_count} ta", parse_mode="HTML")
 
 # ————————————————————————————————————————————————————————————————
 # ADMIN FUNKSIYALARI
 # ————————————————————————————————————————————————————————————————
+
+@dp.message_handler(text="💾 Baza zaxirasi", state="*")
+async def send_backup(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    try:
+        with open('kino_baza.db', 'rb') as doc:
+            await message.reply_document(doc, caption="📦 <b>Kino bazasining zaxira fayli (Backup)</b>", parse_mode="HTML")
+    except Exception as e:
+        await message.reply(f"❌ Faylni yuborishda xatolik: {e}")
 
 @dp.message_handler(text="➕ Kino qo'shish", state="*")
 async def add_kino_start(message: types.Message):
@@ -193,20 +183,12 @@ async def add_kino_save(message: types.Message, state: FSMContext):
     if len(parts) == 3:
         kod, nomi, file_id = parts[0].strip(), parts[1].strip(), parts[2].strip()
         try:
-            db_conn = get_db_connection()
-            db_cursor = db_conn.cursor()
-            db_cursor.execute(
-                "INSERT INTO kinolar (kod, nomi, file_id) VALUES (%s, %s, %s) ON CONFLICT (kod) DO UPDATE SET nomi = EXCLUDED.nomi, file_id = EXCLUDED.file_id",
-                (kod, nomi, file_id)
-            )
-            db_conn.commit()
-            db_cursor.close()
-            db_conn.close()
+            cursor.execute("INSERT OR REPLACE INTO kinolar (kod, nomi, file_id) VALUES (?, ?, ?)", (kod, nomi, file_id))
+            conn.commit()
             await state.finish()
             await message.reply(f"✅ Kino muvaffaqiyatli saqlandi!\n🔑 Kodi: {kod}\n🎬 Nomi: {nomi}", reply_markup=admin_buttons)
         except Exception as e:
-            # Aniq xatolikni chiqarish (Agar jadval topilmasa yoki boshqa xato bo'lsa ko'rinadi)
-            await message.reply(f"❌ Bazaga saqlashda xatolik: <code>{str(e)}</code>", parse_mode="HTML")
+            await message.reply(f"❌ Xatolik: {e}")
     else:
         await message.reply("❌ Format xato! Iltimos <code>kod*nomi*file_id</code> ko'rinishida yuboring.", parse_mode="HTML")
 
@@ -220,24 +202,15 @@ async def delete_kino_start(message: types.Message):
 @dp.message_handler(state=AdminXolatlari.kino_ochirish)
 async def delete_kino_save(message: types.Message, state: FSMContext):
     kod = message.text.strip()
-    try:
-        db_conn = get_db_connection()
-        db_cursor = db_conn.cursor()
-        db_cursor.execute("SELECT nomi FROM kinolar WHERE kod = %s", (kod,))
-        kino = db_cursor.fetchone()
-        if kino:
-            db_cursor.execute("DELETE FROM kinolar WHERE kod = %s", (kod,))
-            db_conn.commit()
-            db_cursor.close()
-            db_conn.close()
-            await state.finish()
-            await message.reply(f"🗑 <b>{kino[0]}</b> (Kod: {kod}) bazadan muvaffaqiyatli o'chirildi!", reply_markup=admin_buttons, parse_mode="HTML")
-        else:
-            db_cursor.close()
-            db_conn.close()
-            await message.reply("❌ Bu kod bilan kino topilmadi. Qayta urinib ko'ring:")
-    except Exception as e:
-        await message.reply(f"❌ Xatolik yuz berdi: {e}")
+    cursor.execute("SELECT nomi FROM kinolar WHERE kod = ?", (kod,))
+    kino = cursor.fetchone()
+    if kino:
+        cursor.execute("DELETE FROM kinolar WHERE kod = ?", (kod,))
+        conn.commit()
+        await state.finish()
+        await message.reply(f"🗑 <b>{kino[0]}</b> (Kod: {kod}) bazadan muvaffaqiyatli o'chirildi!", reply_markup=admin_buttons, parse_mode="HTML")
+    else:
+        await message.reply("❌ Bu kod bilan kino topilmadi. Qayta urinib ko'ring:")
 
 @dp.message_handler(text="📢 Xabar tarqatish", state="*")
 async def start_reklama(message: types.Message):
@@ -250,16 +223,8 @@ async def start_reklama(message: types.Message):
 async def send_reklama(message: types.Message, state: FSMContext):
     await state.finish()
     
-    try:
-        db_conn = get_db_connection()
-        db_cursor = db_conn.cursor()
-        db_cursor.execute("SELECT user_id FROM users")
-        barcha_foydalanuvchilar = db_cursor.fetchall()
-        db_cursor.close()
-        db_conn.close()
-    except Exception as e:
-        await message.reply(f"❌ Foydalanuvchilarni olishda xatolik: {e}")
-        return
+    cursor.execute("SELECT user_id FROM users")
+    barcha_foydalanuvchilar = cursor.fetchall()
     
     yuborildi = 0
     xato = 0
@@ -296,7 +261,7 @@ async def handle_messages(message: types.Message):
     boshqa_tugmalar = [
         "🔍 Kino izlash", "👨‍💻 Admin bilan aloqa", "➕ Kino qo'shish", 
         "🗑 Kino o'chirish", "📊 Statistika", "📢 Xabar tarqatish", 
-        "❌ Bekor qilish"
+        "❌ Bekor qilish", "💾 Baza zaxirasi"
     ]
     if matn in boshqa_tugmalar:
         return
@@ -305,26 +270,21 @@ async def handle_messages(message: types.Message):
         await send_welcome(message, None)
         return
 
-    try:
-        db_conn = get_db_connection()
-        db_cursor = db_conn.cursor()
-        db_cursor.execute("SELECT nomi, file_id FROM kinolar WHERE kod = %s", (matn,))
-        kino = db_cursor.fetchone()
-        db_cursor.close()
-        db_conn.close()
+    # Xavfsiz qidirish uchun local cursor
+    local_cursor = conn.cursor()
+    local_cursor.execute("SELECT nomi, file_id FROM kinolar WHERE kod = ?", (matn,))
+    kino = local_cursor.fetchone()
 
-        if kino:
-            nomi, file_id = kino
-            await message.reply(f"🎬 <b>Kino nomi:</b> {nomi}\n\n🍿 Yoqimli tomosha!", parse_mode="HTML")
-            try: 
-                await bot.send_video(chat_id=message.chat.id, video=file_id)
-            except Exception: 
-                await message.reply("❌ Videoni yuborishda xatolik yuz berdi!")
-        else:
-            await message.reply("❌ <b>Bunday kodli kino topilmadi!</b>\n\nIltimos, kodni tekshirib qaytadan yuboring.", parse_mode="HTML")
-    except Exception as e:
-        await message.reply(f"❌ Qidirishda xatolik yuz berdi: {e}")
+    if kino:
+        nomi, file_id = kino
+        await message.reply(f"🎬 <b>Kino nomi:</b> {nomi}\n\n🍿 Yoqimli tomosha!", parse_mode="HTML")
+        try: 
+            await bot.send_video(chat_id=message.chat.id, video=file_id)
+        except Exception: 
+            await message.reply("❌ Videoni yuborishda xatolik yuz berdi!")
+    else:
+        await message.reply("❌ <b>Bunday kodli kino topilmadi!</b>\n\nIltimos, kodni tekshirib qaytadan yuboring.", parse_mode="HTML")
 
 if __name__ == '__main__':
-    keep_alive()  # Render uxlab qolmasligi uchun serverni yoqish
+    keep_alive()  # Server uxlab qolmasligi uchun
     executor.start_polling(dp, skip_updates=True)
